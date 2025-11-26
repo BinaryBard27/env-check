@@ -2,7 +2,7 @@
 name = "env-check"
 version = "0.1.0"
 description = "JSON-based environment variable validator"
-authors = [{name=Sherwin}]
+authors = [{name = "Sherwin"}]
 readme = "README.md"
 requires-python = ">=3.8"
 
