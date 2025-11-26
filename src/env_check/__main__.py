@@ -119,7 +119,7 @@ def main():
     parser.add_argument("--anomaly", action="store_true", help="run anomaly detector")
     parser.add_argument("--anomaly-no-persist", action="store_true", help="do not persist anomaly baseline")
     parser.add_argument("--drift-save", action="store_true", help="save config snapshot for drift detection")
-    parser.add_argument("--drift-compare", action="store_true", help="compare snapshots for drift")
+    parser.add_argument("--drift-compare", nargs=2, metavar=("FILE1", "FILE2"), help="Compare two .env files for drift (missing keys, extra keys, differing values).")
     # migration helper
     parser.add_argument("--generate-example", action="store_true", help="generate .env.example from schema")
     args = parser.parse_args()
@@ -129,6 +129,13 @@ def main():
         sys.exit(0)
 
     print_header(args)
+
+    if args.drift_compare:
+        from .drift_detection import compare_env_files, format_drift_report
+        file1, file2 = args.drift_compare
+        result = compare_env_files(file1, file2)
+        print(format_drift_report(result, file1, file2))
+        sys.exit(0)
 
     # --------------- MIGRATE (phase 3) ----------------
     if args.migrate:
