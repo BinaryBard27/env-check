@@ -104,7 +104,7 @@ def main():
     parser.add_argument("--max-workers", type=int, default=4, help="max workers for parallel")
     parser.add_argument("--sync", help="sync multiple env files (comma separated)")
     parser.add_argument("--exposure", action="store_true", help="scan for exposed secrets in values")
-    parser.add_argument("--scan-repo", help="scan repository to detect usage of env vars (glob paths)")
+    parser.add_argument("--scan-repo", metavar="PATH", help="Scan entire repository for env issues, drift, and secret leaks.")
     parser.add_argument("--flag-coverage", action="store_true", help="report feature-flag coverage")
     # Phase3 options
     parser.add_argument("--migrate", choices=["to-json", "to-yaml", "json-to-env", "yaml-to-env"], help="migrate env <-> json/yaml")
@@ -135,6 +135,36 @@ def main():
         file1, file2 = args.drift_compare
         result = compare_env_files(file1, file2)
         print(format_drift_report(result, file1, file2))
+        sys.exit(0)
+
+    if args.scan_repo:
+        from .repo_scanner import run_repo_scan
+
+        result = run_repo_scan(args.scan_repo)
+
+        print("\n=== REPO SCAN REPORT ===\n")
+
+        print("📂 Found env files:")
+        for f in result["env_files"]:
+            print("   ➤", f)
+
+        print("\n🔥 Drift between env files:")
+        for f1, f2, drift in result["drift"]:
+            print(f"\nComparing:\n  {f1}\n  {f2}")
+            if drift["missing_in_file1"]:
+                print("  Missing in file1:", drift["missing_in_file1"])
+            if drift["missing_in_file2"]:
+                print("  Missing in file2:", drift["missing_in_file2"])
+            if drift["different_values"]:
+                print("  Different values:", drift["different_values"])
+
+        print("\n🚨 Secret Leaks Detected:")
+        for path, pattern in result["secret_leaks"]:
+            print(f"   ⚠ {path}  (pattern: {pattern})")
+
+        print("\n🔧 Missing env vars in files:", result["missing_env_vars"])
+        print("🧹 Unused env vars:", result["unused_env_vars"])
+
         sys.exit(0)
 
     # --------------- MIGRATE (phase 3) ----------------
