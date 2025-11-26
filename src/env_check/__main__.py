@@ -93,7 +93,7 @@ def main():
     parser.add_argument("--quiet", action="store_true", help="suppress OK output, only show errors")
     parser.add_argument("--minimal", action="store_true", help="minimal output mode (summary only)")
     parser.add_argument("--verbose", action="store_true", help="verbose output for debugging")
-    parser.add_argument("--json", action="store_true", help="output machine-readable JSON")
+    parser.add_argument("--json", action="store_true", help="Output results in JSON format for CI/CD.")
     parser.add_argument("--fix", action="store_true", help="run autofix")
     parser.add_argument("--fix-mode", choices=["a", "b"], default="a", help="autofix behavior (a=aggressive,b=backup)")
     parser.add_argument("--version", action="store_true", help="print version")
@@ -104,7 +104,7 @@ def main():
     parser.add_argument("--max-workers", type=int, default=4, help="max workers for parallel")
     parser.add_argument("--sync", help="sync multiple env files (comma separated)")
     parser.add_argument("--exposure", action="store_true", help="scan for exposed secrets in values")
-    parser.add_argument("--scan-repo", help="scan repository to detect usage of env vars (glob paths)")
+    parser.add_argument("--scan-repo", metavar="PATH", help="Scan entire repository for env issues, drift, and secret leaks.")
     parser.add_argument("--flag-coverage", action="store_true", help="report feature-flag coverage")
     # Phase3 options
     parser.add_argument("--migrate", choices=["to-json", "to-yaml", "json-to-env", "yaml-to-env"], help="migrate env <-> json/yaml")
@@ -116,8 +116,7 @@ def main():
     parser.add_argument("--ci-overwrite", action="store_true", help="overwrite existing CI file")
     parser.add_argument("--plugin", action="append", help="load and run plugin file(s)")
     parser.add_argument("--plugins-dir", help="directory with plugins to load")
-    parser.add_argument("--anomaly", action="store_true", help="run anomaly detector")
-    parser.add_argument("--anomaly-no-persist", action="store_true", help="do not persist anomaly baseline")
+    parser.add_argument("--anomaly", action="store_true", help="Run anomaly detection on env files using heuristics and entropy analysis.")
     parser.add_argument("--drift-save", action="store_true", help="save config snapshot for drift detection")
     parser.add_argument("--drift-compare", nargs=2, metavar=("FILE1", "FILE2"), help="Compare two .env files for drift (missing keys, extra keys, differing values).")
     # migration helper
@@ -134,7 +133,93 @@ def main():
         from .drift_detection import compare_env_files, format_drift_report
         file1, file2 = args.drift_compare
         result = compare_env_files(file1, file2)
+
+        if args.json:
+            from .json_output import wrap_json_response, to_json
+            result_json = wrap_json_response(
+                action="drift_compare",
+                success=True,
+                details=result
+            )
+            print(to_json(result_json, pretty=True))
+            sys.exit(0)
+
         print(format_drift_report(result, file1, file2))
+        sys.exit(0)
+
+    if args.scan_repo:
+        from .repo_scanner import run_repo_scan
+
+        result = run_repo_scan(args.scan_repo)
+
+        if args.json:
+            from .json_output import wrap_json_response, to_json
+            result_json = wrap_json_response(
+                action="scan_repo",
+                success=True,
+                details=result
+            )
+            print(to_json(result_json, pretty=True))
+            sys.exit(0)
+
+        print("\n=== REPO SCAN REPORT ===\n")
+
+        print("📂 Found env files:")
+        for f in result["env_files"]:
+            print("   ➤", f)
+
+        print("\n🔥 Drift between env files:")
+        for f1, f2, drift in result["drift"]:
+            print(f"\nComparing:\n  {f1}\n  {f2}")
+            if drift["missing_in_file1"]:
+                print("  Missing in file1:", drift["missing_in_file1"])
+            if drift["missing_in_file2"]:
+                print("  Missing in file2:", drift["missing_in_file2"])
+            if drift["different_values"]:
+                print("  Different values:", drift["different_values"])
+
+        print("\n🚨 Secret Leaks Detected:")
+        for path, pattern in result["secret_leaks"]:
+            print(f"   ⚠ {path}  (pattern: {pattern})")
+
+        print("\n🔧 Missing env vars in files:", result["missing_env_vars"])
+        print("🧹 Unused env vars:", result["unused_env_vars"])
+
+        sys.exit(0)
+
+    if args.anomaly:
+        from .repo_scanner import find_env_files
+        from .anomaly_detector import detect_anomalies
+
+        env_files = find_env_files(".")
+        main_env = args.env if args.env else ".env"
+
+        anomalies = detect_anomalies(main_env, env_files)
+
+        if args.json:
+            from .json_output import wrap_json_response, to_json
+
+            anomalies_list = [
+                {"key": key, "value": value, "reason": reason}
+                for key, value, reason in anomalies
+            ]
+
+            result_json = wrap_json_response(
+                action="anomaly_detection",
+                success=(len(anomalies) == 0),
+                details={"anomalies": anomalies_list}
+            )
+            print(to_json(result_json, pretty=True))
+            sys.exit(0)
+
+        print("\n=== ANOMALY REPORT ===\n")
+
+        if not anomalies:
+            print("✔ No anomalies detected.")
+        else:
+            for key, value, reason in anomalies:
+                print(f"⚠ {key} = {value}\n   ➤ {reason}\n")
+
         sys.exit(0)
 
     # --------------- MIGRATE (phase 3) ----------------
@@ -211,19 +296,9 @@ def main():
         loaded = plugins_mod.load_plugins(plugin_paths=args.plugin, plugins_dir=args.plugins_dir)
         plugin_issues = plugins_mod.run_plugins(loaded, env_vars, schema)
 
-    # --------------- Anomaly detection ----------------
-    anomaly_notes = []
-    anomaly_issues_list = []
-    if args.anomaly:
-        try:
-            detector = SimpleAnomalyDetector(env_vars)
-            issues_anom, info_anom = detector.analyze(persist_baseline_if_missing=not args.anomaly_no_persist)
-            anomaly_notes.extend(info_anom)
-            for ai in issues_anom:
-                ai["severity"] = "warning"
-                anomaly_issues_list.append(ai)
-        except Exception as e:
-            print(f"ERROR: anomaly detector failed: {e}", file=sys.stderr)
+    # --------------- Anomaly detection (removed in favor of new CLI handler) ----------------
+    # anomaly_notes = []
+    # anomaly_issues_list = []
 
     # collate issues
     issues = []
@@ -253,10 +328,16 @@ def main():
 
     # JSON output
     if args.json:
-        status = "fail" if errors else "success"
-        result = build_json_result(status=status, file=args.env, errors=errors, warnings=warnings, infos=infos)
-        print(json.dumps(result, indent=2))
-        sys.exit(1 if errors else 0)
+        from .json_output import wrap_json_response, to_json
+        result_json = wrap_json_response(
+            action="validate",
+            success=(len(errors) == 0),
+            errors=errors,
+            warnings=warnings,
+            details={"validated_env": args.env},
+        )
+        print(to_json(result_json, pretty=True))
+        sys.exit(0)
 
     # Minimal
     if args.minimal:
