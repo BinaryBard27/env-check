@@ -1,0 +1,30 @@
+{
+  "SERVICE_URL": {
+    "key": "SERVICE_URL",
+    "token_type": "UNKNOWN",
+    "entropy": 3.7216117239699003,
+    "length": 19,
+    "digits_fraction": 0.0
+  },
+  "API_KEY": {
+    "key": "API_KEY",
+    "token_type": "UNKNOWN",
+    "entropy": 3.3735572622751855,
+    "length": 15,
+    "digits_fraction": 0.0
+  },
+  "USERNAME": {
+    "key": "USERNAME",
+    "token_type": "UNKNOWN",
+    "entropy": 0.0,
+    "length": 0,
+    "digits_fraction": 0.0
+  },
+  "INVISIBLE": {
+    "key": "INVISIBLE",
+    "token_type": "UNKNOWN",
+    "entropy": 2.584962500721156,
+    "length": 6,
+    "digits_fraction": 0.0
+  }
+}

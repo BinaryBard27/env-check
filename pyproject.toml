@@ -1,0 +1,14 @@
+[project]
+name = "env-check"
+version = "0.1.0"
+description = "JSON-based environment variable validator"
+authors = [{name=Sherwin}]
+readme = "README.md"
+requires-python = ">=3.8"
+
+[project.scripts]
+env-check = "env_check.__main__:main"
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"

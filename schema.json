@@ -1,0 +1,15 @@
+{
+    "required": [
+        "PORT",
+        "MODE",
+        "API_KEY"
+    ],
+    "patterns": {
+        "PORT": "^[0-9]+$",
+        "API_KEY": "^sk-[A-Za-z0-9]+$"
+    },
+    "secret": [
+        "API_KEY"
+    ],
+    "allow_extra_keys": false
+}

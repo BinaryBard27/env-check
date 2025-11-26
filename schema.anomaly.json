@@ -1,0 +1,16 @@
+{
+    "keys": {
+        "SECRET_KEY": {
+            "type": "string",
+            "required": true
+        },
+        "API_KEY": {
+            "type": "string",
+            "required": true
+        }
+    },
+    "secret": [
+        "SECRET_KEY",
+        "API_KEY"
+    ]
+}
