@@ -1,101 +1,100 @@
 # src/env_check/repo_scanner.py
 
 import os
-import re
-from .drift_detection import load_env_file, compare_env_files
-
-
-SECRET_PATTERNS = [
-    r"AKIA[0-9A-Z]{16}",                          # AWS Access Key
-    r"AIza[0-9A-Za-z\-_]{35}",                    # Google API Key
-    r"sk_live_[0-9a-zA-Z]{24}",                   # Stripe live key
-    r"sk_test_[0-9a-zA-Z]{24}",                   # Stripe test key
-    r"[A-Za-z0-9-_]{20,}\.[A-Za-z0-9-_]{20,}\.[A-Za-z0-9-_]{20,}",  # JWT
-    r"-----BEGIN PRIVATE KEY-----",
-    r"ghp_[A-Za-z0-9]{36}",                       # GitHub token
-    r"[0-9a-fA-F]{32}",                           # generic hex secrets
-]
-
+from .loader import load_env_file
+from .drift import compare_env_dicts
+from .secret_heuristics import scan_paths, SEVERITY
 
 def find_env_files(root):
-    matches = []
+    """Find all .env-like files in the repository."""
+    env_files = []
     for dirpath, _, filenames in os.walk(root):
         for f in filenames:
-            if f.startswith(".env"):
-                matches.append(os.path.join(dirpath, f))
-    return matches
-
-
-def detect_secret_leaks(root):
-    leaks = []
-    for dirpath, _, filenames in os.walk(root):
-        for f in filenames:
-            if f.lower().endswith((".py", ".js", ".ts", ".go", ".json", ".yml", ".yaml", ".env")):
-                path = os.path.join(dirpath, f)
-                try:
-                    with open(path, "r", encoding="utf-8", errors="ignore") as file:
-                        content = file.read()
-                        for pattern in SECRET_PATTERNS:
-                            if re.search(pattern, content):
-                                leaks.append((path, pattern))
-                except:
-                    pass
-    return leaks
-
-
-def analyze_env_usage(root, env_files):
-    """Find variables used in source code but missing in env files."""
-    used_vars = set()
-
-    getenv_pattern = re.compile(r"os\.getenv\(['\"]([A-Z0-9_]+)['\"]\)")
-    dotenv_pattern = re.compile(r"process\.env\.([A-Z0-9_]+)")
-
-    for dirpath, _, filenames in os.walk(root):
-        for f in filenames:
-            if f.endswith((".py", ".js", ".ts", ".go")):
-                path = os.path.join(dirpath, f)
-                try:
-                    with open(path, "r", encoding="utf-8", errors="ignore") as file:
-                        content = file.read()
-                        used_vars.update(getenv_pattern.findall(content))
-                        used_vars.update(dotenv_pattern.findall(content))
-                except:
-                    pass
-
-    defined_vars = set()
-    for f in env_files:
-        data = load_env_file(f)
-        defined_vars.update(data.keys())
-
-    missing_in_env = used_vars - defined_vars
-    unused_in_code = defined_vars - used_vars
-
-    return list(missing_in_env), list(unused_in_code)
+            lower = f.lower()
+            if lower.startswith(".env") or lower.endswith(".env") or ".env" in lower:
+                env_files.append(os.path.join(dirpath, f))
+    return env_files
 
 
 def run_repo_scan(root):
-    report = {}
-
-    # 1. Find all env files
+    """
+    Scan entire repo for:
+    - env files
+    - drift between them
+    """
+    result = {}
     env_files = find_env_files(root)
-    report["env_files"] = env_files
+    result["env_files"] = env_files
 
-    # 2. Drift detection across each pair
+    # DRIFT DETECTION
     drift_results = []
     for i in range(len(env_files)):
         for j in range(i + 1, len(env_files)):
             f1, f2 = env_files[i], env_files[j]
-            result = compare_env_files(f1, f2)
-            drift_results.append((f1, f2, result))
-    report["drift"] = drift_results
+            env1 = load_env_file(f1)
+            env2 = load_env_file(f2)
+            drift_results.append((f1, f2, compare_env_dicts(env1, env2)))
 
-    # 3. Secret leak detection
-    leaks = detect_secret_leaks(root)
-    report["secret_leaks"] = leaks
+    result["drift"] = drift_results
 
-    # 4. Env usage analysis
-    missing, unused = analyze_env_usage(root, env_files)
-    report["missing_env_vars"] = missing
-    report["unused_env_vars"] = unused
+    # UNUSED / MISSING KEYS (simple linter)
+    all_keys = set()
+    per_file_keys = {}
 
-    return report
+    for f in env_files:
+        data = load_env_file(f)
+        keys = set(data.keys())
+        per_file_keys[f] = keys
+        all_keys |= keys
+
+    missing = {}
+    unused = {}
+
+    for f, keys in per_file_keys.items():
+        missing[f] = list(all_keys - keys)
+        unused[f] = list(keys - all_keys)
+
+    result["missing_env_vars"] = missing
+    result["unused_env_vars"] = list(all_keys)
+
+    return result
+
+
+def detect_secret_leaks(root):
+    """
+    Apply advanced secret heuristics to all relevant files.
+    """
+    candidates = []
+
+    for dirpath, _, filenames in os.walk(root):
+        for f in filenames:
+            fp = os.path.join(dirpath, f)
+
+            # Scan programming & config files
+            if f.lower().endswith((
+                ".py", ".js", ".ts", ".go", ".java", ".rb",
+                ".json", ".yml", ".yaml", ".env", ".ini", ".cfg",
+                ".sh", ".bash"
+            )) or f.lower().startswith(".env"):
+                candidates.append(fp)
+
+    findings = scan_paths(candidates)
+
+    # Deduplicate (same file + line + snippet)
+    unique = {}
+    for f in findings:
+        key = (f.get("file"), f.get("line"), f.get("value_snippet"))
+        if key not in unique:
+            unique[key] = f
+        else:
+            # If duplicate exists, pick higher severity
+            old = unique[key]
+            try:
+                old_sev = SEVERITY.index(old["severity"])
+                new_sev = SEVERITY.index(f["severity"])
+                if new_sev > old_sev:
+                    unique[key] = f
+            except:
+                pass
+
+    return list(unique.values())

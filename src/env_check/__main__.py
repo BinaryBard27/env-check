@@ -105,6 +105,7 @@ def main():
     parser.add_argument("--sync", help="sync multiple env files (comma separated)")
     parser.add_argument("--exposure", action="store_true", help="scan for exposed secrets in values")
     parser.add_argument("--scan-repo", metavar="PATH", help="Scan entire repository for env issues, drift, and secret leaks.")
+    parser.add_argument("--secret-scan", action="store_true", help="Run advanced secret heuristics across the repository.")
     parser.add_argument("--flag-coverage", action="store_true", help="report feature-flag coverage")
     # Phase3 options
     parser.add_argument("--migrate", choices=["to-json", "to-yaml", "json-to-env", "yaml-to-env"], help="migrate env <-> json/yaml")
@@ -148,12 +149,17 @@ def main():
         sys.exit(0)
 
     if args.scan_repo:
-        from .repo_scanner import run_repo_scan
+        from env_check.repo_scanner import run_repo_scan, detect_secret_leaks
 
         result = run_repo_scan(args.scan_repo)
 
+        # Add advanced secret findings if enabled
+        if args.secret_scan:
+            result["advanced_secret_findings"] = detect_secret_leaks(args.scan_repo)
+
+        # JSON OUTPUT
         if args.json:
-            from .json_output import wrap_json_response, to_json
+            from env_check.json_output import wrap_json_response, to_json
             result_json = wrap_json_response(
                 action="scan_repo",
                 success=True,
@@ -162,28 +168,17 @@ def main():
             print(to_json(result_json, pretty=True))
             sys.exit(0)
 
-        print("\n=== REPO SCAN REPORT ===\n")
-
-        print("📂 Found env files:")
+        # NORMAL TEXT OUTPUT
+        print("=== REPO SCAN REPORT ===")
+        print()
+        print("Env Files Found:")
         for f in result["env_files"]:
-            print("   ➤", f)
+            print("  -", f)
 
-        print("\n🔥 Drift between env files:")
-        for f1, f2, drift in result["drift"]:
-            print(f"\nComparing:\n  {f1}\n  {f2}")
-            if drift["missing_in_file1"]:
-                print("  Missing in file1:", drift["missing_in_file1"])
-            if drift["missing_in_file2"]:
-                print("  Missing in file2:", drift["missing_in_file2"])
-            if drift["different_values"]:
-                print("  Different values:", drift["different_values"])
-
-        print("\n🚨 Secret Leaks Detected:")
-        for path, pattern in result["secret_leaks"]:
-            print(f"   ⚠ {path}  (pattern: {pattern})")
-
-        print("\n🔧 Missing env vars in files:", result["missing_env_vars"])
-        print("🧹 Unused env vars:", result["unused_env_vars"])
+        print("\nAdvanced Secret Findings:" if args.secret_scan else "")
+        if args.secret_scan:
+            for finding in result["advanced_secret_findings"]:
+                print(f"  {finding['file']}:{finding['line']}  ({finding['severity']}) -> {finding['value_snippet']}")
 
         sys.exit(0)
 
