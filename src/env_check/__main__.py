@@ -8,7 +8,7 @@ import json
 import os
 from typing import Tuple
 
-from .loader import SchemaLoader
+from .loader import SchemaLoader, load_env_file
 from .schema_validator import SchemaValidator
 from .env_linter import EnvLinter
 from .secret_analyzer import SecretAnalyzer
@@ -19,47 +19,22 @@ from . import ci as ci_mod
 from . import plugins as plugins_mod
 from .autofix import AutoFixer
 from .anomaly import SimpleAnomalyDetector  # optional - keep if present
+from .repo_scanner import run_repo_scan
+from .secret_heuristics import run_secret_scan
+from .drift import drift_compare
+from .anomaly import analyze_env_file
+from env_check.output import print_scan_report_text
 
 VERSION = "1.1.0"
 
 
-def load_env_file(path: str) -> Tuple[dict, list]:
-    """
-    Reads .env file. Returns (env_vars, raw_lines)
-    env_vars: {KEY: value}
-    raw_lines: list of (line_no, original_line)
-    """
-    env_vars = {}
-    env_vars_raw = []
-    line_no = 0
-
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            for line in f:
-                line_no += 1
-                original_line = line.rstrip("\n")
-                env_vars_raw.append((line_no, original_line))
-                sline = original_line.strip()
-
-                if not sline or sline.startswith("#"):
-                    continue
-
-                if "=" not in sline:
-                    # keep as invalid/ignored line
-                    continue
-
-                key, value = sline.split("=", 1)
-                key = key.strip()
-                value = value.strip()
-                if len(value) >= 2 and ((value[0] == value[-1]) and value[0] in ("'", '"')):
-                    value = value[1:-1]
-                env_vars[key] = value
-
-    except FileNotFoundError:
-        print(f"ERROR: env file not found: {path}", file=sys.stderr)
-        sys.exit(2)
-
-    return env_vars, env_vars_raw
+class Color:
+    RESET = "\033[0m"
+    RED = "\033[91m"
+    GREEN = "\033[92m"
+    YELLOW = "\033[93m"
+    BLUE = "\033[94m"
+    MAGENTA = "\033[95m"
 
 
 def print_header(args):
@@ -87,6 +62,25 @@ def build_json_result(status: str, file: str, errors: list, warnings: list, info
 def main():
     parser = argparse.ArgumentParser(prog="env-check",
         description="env-check: validate .env files using JSON schema and extras (migration, CI init, plugins)")
+
+    subparsers = parser.add_subparsers(dest="command")
+
+    # scan
+    scan_cmd = subparsers.add_parser("scan", help="Scan repository for env issues")
+    scan_cmd.add_argument("path", help="Path to scan")
+
+    # secrets
+    secrets_cmd = subparsers.add_parser("secrets", help="Scan for secrets only")
+    secrets_cmd.add_argument("path")
+
+    # drift
+    drift_cmd = subparsers.add_parser("drift", help="Compare two ENV files")
+    drift_cmd.add_argument("file1")
+    drift_cmd.add_argument("file2")
+
+    # audit
+    audit_cmd = subparsers.add_parser("audit", help="Run full audit (scan + secrets + drift)")
+    audit_cmd.add_argument("path")
     parser.add_argument("--schema", "-s", default=None, help="path to schema file (optional)")
     parser.add_argument("--env", "-e", default=".env", help="path to .env file")
     parser.add_argument("--strict", action="store_true", help="enable strict mode (extra keys fail etc.)")
@@ -107,6 +101,9 @@ def main():
     parser.add_argument("--scan-repo", metavar="PATH", help="Scan entire repository for env issues, drift, and secret leaks.")
     parser.add_argument("--secret-scan", action="store_true", help="Run advanced secret heuristics across the repository.")
     parser.add_argument("--flag-coverage", action="store_true", help="report feature-flag coverage")
+    parser.add_argument("--severity", choices=["INFO","LOW","MEDIUM","HIGH"], default=None,
+                        help="Minimum severity to show (INFO, LOW, MEDIUM, HIGH).")
+    parser.add_argument("--ci", action="store_true", help="Compact CI output (JSON summary / minimal lines).")
     # Phase3 options
     parser.add_argument("--migrate", choices=["to-json", "to-yaml", "json-to-env", "yaml-to-env"], help="migrate env <-> json/yaml")
     parser.add_argument("--migrate-src", help="migrate source path")
@@ -123,6 +120,29 @@ def main():
     # migration helper
     parser.add_argument("--generate-example", action="store_true", help="generate .env.example from schema")
     args = parser.parse_args()
+
+    if args.command == "scan":
+        result = run_repo_scan(args.path)
+        print(f"Found {len(result.get('env_files', []))} env files.")
+        for f in result.get("env_files", []):
+            print(f" - {f}")
+        sys.exit(0)
+
+    elif args.command == "secrets":
+        run_secret_scan(args.path)
+        sys.exit(0)
+
+    elif args.command == "drift":
+        drift_compare(args.file1, args.file2)
+        sys.exit(0)
+
+    elif args.command == "audit":
+        result = run_repo_scan(args.path)
+        print(f"Found {len(result.get('env_files', []))} env files.")
+        for f in result.get("env_files", []):
+            print(f" - {f}")
+        run_secret_scan(args.path)
+        sys.exit(0)
 
     if args.version:
         print(f"env-check {VERSION}")
@@ -168,18 +188,8 @@ def main():
             print(to_json(result_json, pretty=True))
             sys.exit(0)
 
-        # NORMAL TEXT OUTPUT
-        print("=== REPO SCAN REPORT ===")
-        print()
-        print("Env Files Found:")
-        for f in result["env_files"]:
-            print("  -", f)
-
-        print("\nAdvanced Secret Findings:" if args.secret_scan else "")
-        if args.secret_scan:
-            for finding in result["advanced_secret_findings"]:
-                print(f"  {finding['file']}:{finding['line']}  ({finding['severity']}) -> {finding['value_snippet']}")
-
+        # Use new pretty printer with severity/ci support
+        print_scan_report_text(result, min_sev=args.severity, ci=args.ci)
         sys.exit(0)
 
     if args.anomaly:
@@ -258,7 +268,15 @@ def main():
         sys.exit(2)
 
     try:
-        env_vars, env_raw = load_env_file(args.env)
+        env_vars = load_env_file(args.env)
+        # Manually read lines for linter since load_env_file only returns dict now
+        env_raw = []
+        try:
+            with open(args.env, "r", encoding="utf-8") as f:
+                for i, line in enumerate(f):
+                    env_raw.append((i + 1, line.rstrip("\n")))
+        except FileNotFoundError:
+            pass # Already handled by load_env_file or will be handled later
     except SystemExit:
         raise
     except Exception as e:
@@ -292,8 +310,8 @@ def main():
         plugin_issues = plugins_mod.run_plugins(loaded, env_vars, schema)
 
     # --------------- Anomaly detection (removed in favor of new CLI handler) ----------------
-    # anomaly_notes = []
-    # anomaly_issues_list = []
+    anomaly_notes = []
+    anomaly_issues_list = []
 
     # collate issues
     issues = []

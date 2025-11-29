@@ -1,0 +1,12 @@
+exclude_dirs:
+  - env-check-clean
+  - .cache
+  - node_modules
+  - __pycache__
+exclude_patterns:
+  - "*.pyc"
+  - "*.zip"
+  - "*.db"
+exclude_keys:
+  - DEBUG
+  - TEST_KEY

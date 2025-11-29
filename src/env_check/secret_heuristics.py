@@ -2,6 +2,7 @@ import re
 import math
 from collections import Counter
 from typing import List, Dict, Optional
+from .patterns import SECRET_PATTERNS
 
 # -----------------------------------------
 # 🔥 1. Regex Signature Patterns
@@ -26,7 +27,55 @@ CONTEXT_KEYWORDS = [
 ]
 
 # Severity Levels
-SEVERITY = ["low", "medium", "high", "critical"]
+SEVERITY = {
+    "HIGH": 3,
+    "MEDIUM": 2,
+    "LOW": 1,
+    "INFO": 0
+}
+
+
+def classify_severity(pattern_name, value=None):
+    """Return severity based on pattern type."""
+    critical_patterns = [
+        "aws_access_key",
+        "aws_secret_key",
+        "stripe_live_key",
+        "private_key_block",
+        "google_api_key",
+        "slack_token",
+        "jwt_token",
+        "AWS_ACCESS_KEY",
+        "GITHUB_PAT",
+        "JWT_TOKEN",
+        "PRIVATE_KEY",
+        "STRIPE_LIVE_KEY",
+        "GOOGLE_API_KEY"
+    ]
+
+    medium_patterns = [
+        "stripe_test_key",
+        "cryptographic_material",
+        "password",
+        "db_url",
+        "STRIPE_TEST_KEY",
+        "BASE64_LONG"
+    ]
+
+    low_patterns = [
+        "suspicious_short_value",
+        "looks_like_token",
+        "random_hex",
+        "HEX_32"
+    ]
+
+    if pattern_name in critical_patterns:
+        return "HIGH"
+    elif pattern_name in medium_patterns:
+        return "MEDIUM"
+    elif pattern_name in low_patterns:
+        return "LOW"
+    return "INFO"
 
 
 # -----------------------------------------
@@ -69,31 +118,13 @@ def context_score(line: str) -> int:
 
 
 # -----------------------------------------
-# 🔥 5. Severity Scoring
+# 🔥 5. Severity Scoring (Legacy / Helper)
 # -----------------------------------------
 
 def determine_severity(pattern: Optional[str], entropy: float, length: int, context: int) -> str:
-    index = 0  # low severity
-
-    if pattern:
-        if "PRIVATE_KEY" in pattern or "JWT" in pattern:
-            index = 3
-        elif "AWS" in pattern or "GITHUB" in pattern or "STRIPE" in pattern:
-            index = 2
-        else:
-            index = 1
-    else:
-        # No signature → heuristic score
-        if entropy >= 4.0 and length >= 20:
-            index = 2
-        elif entropy >= 3.5 and length >= 12:
-            index = 1
-
-    # context boosts severity
-    if context > 0:
-        index = min(index + 1, 3)
-
-    return SEVERITY[index]
+    # This function is kept for compatibility if needed, but we rely on classify_severity now.
+    # Mapping old logic to new keys if necessary, or just returning a default.
+    return "INFO"
 
 
 # -----------------------------------------
@@ -119,7 +150,8 @@ def scan_string(value: str, surrounding_line: str = "") -> List[Dict]:
             "entropy": round(entropy, 3),
             "length": length,
             "context_score": ctx,
-            "severity": determine_severity(pattern, entropy, length, ctx),
+            # We will override severity in scan_file using classify_severity
+            "severity": "INFO", 
         })
 
     return findings
@@ -139,6 +171,17 @@ def scan_file(path: str) -> List[Dict]:
         return results
 
     for line_no, line in enumerate(lines, start=1):
+        snippet = line.strip()
+        for pattern_name, regex in SECRET_PATTERNS.items():
+            if regex.search(snippet):
+                results.append({
+                    "file": path,
+                    "line": line_no,
+                    "value_snippet": snippet,
+                    "pattern": pattern_name,
+                    "severity": classify_severity(pattern_name, snippet)
+                })
+                continue
 
         # capture quoted values OR long tokens
         tokens = re.findall(r"['\"]([^'\"]{6,200})['\"]|([A-Za-z0-9\-_\.\/\+]{12,200})", line)
@@ -152,11 +195,25 @@ def scan_file(path: str) -> List[Dict]:
         for token in tokens:
             findings = scan_string(token, surrounding_line=line)
             for f in findings:
+                # Use the new classify_severity function
+                pattern_name = f["pattern"]
+                snippet = f["value_snippet"]
+                
+                # If no pattern matched but we found it via heuristics (entropy/length),
+                # assign a default pattern name for classification if needed, 
+                # or rely on classify_severity returning INFO/LOW.
+                if not pattern_name:
+                    if f["entropy"] > 4.5:
+                        pattern_name = "random_hex" # or similar high entropy category
+                    else:
+                        pattern_name = "suspicious_short_value"
+
                 results.append({
                     "file": path,
                     "line": line_no,
-                    "excerpt": line.strip()[:180],
-                    **f
+                    "value_snippet": snippet,
+                    "pattern": pattern_name,
+                    "severity": classify_severity(pattern_name, snippet)
                 })
 
     return results
@@ -171,3 +228,20 @@ def scan_paths(paths: List[str]) -> List[Dict]:
     for p in paths:
         all_results.extend(scan_file(p))
     return all_results
+
+
+def run_secret_scan(path):
+    import os
+    candidates = []
+    if os.path.isfile(path):
+        candidates.append(path)
+    else:
+        for dirpath, _, filenames in os.walk(path):
+            for f in filenames:
+                candidates.append(os.path.join(dirpath, f))
+
+    findings = scan_paths(candidates)
+    print(f"Scanning secrets in {path}...")
+    for f in findings:
+        print(f"[{f['severity']}] {f['file']}:{f['line']} {f['pattern']} -> {f['value_snippet']}")
+

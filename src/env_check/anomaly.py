@@ -85,3 +85,20 @@ class SimpleAnomalyDetector:
                 pass
 
         return issues, info
+
+
+def analyze_env_file(path):
+    from .loader import load_env_file
+    try:
+        env_vars, _ = load_env_file(path)
+        detector = SimpleAnomalyDetector(env_vars)
+        issues, info = detector.analyze()
+
+        print(f"Anomaly analysis for {path}:")
+        for i in info:
+            print(f"INFO: {i}")
+        for issue in issues:
+            print(f"ANOMALY: {issue['message']}")
+    except Exception as e:
+        print(f"Error analyzing {path}: {e}")
+

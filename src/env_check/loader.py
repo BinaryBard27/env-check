@@ -1,3 +1,4 @@
+# src/env_check/loader.py
 import json
 import os
 
@@ -36,3 +37,33 @@ class SchemaLoader:
 
         _SCHEMA_CACHE = data
         return data
+
+
+def load_env_file(path):
+    """
+    Read an env file and return ONLY a dict of key->value.
+    If the parser returns tuples or other structures, normalize them.
+    """
+    result = {}
+
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            lines = fh.readlines()
+    except Exception:
+        return {}
+
+    for line in lines:
+        line = line.strip()
+
+        # skip empty/comment lines
+        if not line or line.startswith("#"):
+            continue
+
+        # key=value format
+        if "=" in line:
+            key, val = line.split("=", 1)
+            key = key.strip()
+            val = val.strip().strip('"').strip("'")
+            result[key] = val
+
+    return result

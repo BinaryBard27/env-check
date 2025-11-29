@@ -56,3 +56,31 @@ def compare_snapshots(name):
     )))
 
     return {"status": "ok", "added": added, "removed": removed, "changed": changed, "diff": diff_text, "paths": paths}
+
+
+def compare_env_dicts(a, b):
+    """
+    Compare two env dicts.
+    Auto-normalize non-dict inputs into empty dicts.
+    """
+    if not isinstance(a, dict):
+        a = {}
+    if not isinstance(b, dict):
+        b = {}
+
+    added = [k for k in b.keys() if k not in a]
+    removed = [k for k in a.keys() if k not in b]
+    changed = {k: (a[k], b[k]) for k in a.keys() & b.keys() if a[k] != b[k]}
+
+    return {
+        "missing_in_file1": removed,
+        "missing_in_file2": added,
+        "different_values": changed,
+    }
+
+
+def drift_compare(file1, file2):
+    from .drift_detection import compare_env_files, format_drift_report
+    result = compare_env_files(file1, file2)
+    print(format_drift_report(result, file1, file2))
+
