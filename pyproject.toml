@@ -1,14 +1,27 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "env-check"
-version = "0.1.0"
-description = "JSON-based environment variable validator"
-authors = [{name=Sherwin}]
+version = "1.2.0"
+description = "A CLI tool to validate, migrate, and lint .env files using schemas and plugins."
+authors = [
+    { name = "Sherwin Dmello", email = "your-email@example.com" }
+]
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+
+dependencies = [
+    "pyyaml>=6.0",
+    "rich>=13.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/BinaryBard27/env-check"
+Repository = "https://github.com/BinaryBard27/env-check"
+Issues = "https://github.com/BinaryBard27/env-check/issues"
 
 [project.scripts]
-env-check = "env_check.__main__:main"
-
-[build-system]
-requires = ["setuptools>=61.0"]
-build-backend = "setuptools.build_meta"
+env-check = "env_check.main:cli"
