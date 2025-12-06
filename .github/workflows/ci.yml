@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+
+jobs:
+  build:
+    name: Build & Test (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.9", "3.10", "3.11", "3.12"]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install build tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install build flake8 pytest
+
+      - name: Install project
+        run: |
+          pip install -e .
+
+      - name: Lint (fail intentionally if errors)
+        run: |
+          flake8 env_check
+
+      - name: Smoke test CLI commands
+        run: |
+          env-check --version
+          env-check --help
+          env-check --json --env examples/.env.example --schema env_check/schemas/schema.json || true
+
+      - name: Build wheel + sdist
+        run: |
+          python -m build
