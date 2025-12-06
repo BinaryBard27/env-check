@@ -1,3 +1,4 @@
+import os
 import re
 import math
 from collections import Counter
@@ -195,26 +196,15 @@ def scan_file(path: str) -> List[Dict]:
         for token in tokens:
             findings = scan_string(token, surrounding_line=line)
             for f in findings:
-                # Use the new classify_severity function
                 pattern_name = f["pattern"]
                 snippet = f["value_snippet"]
-                
-                # If no pattern matched but we found it via heuristics (entropy/length),
-                # assign a default pattern name for classification if needed, 
-                # or rely on classify_severity returning INFO/LOW.
-                if not pattern_name:
-                    if f["entropy"] > 4.5:
-                        pattern_name = "random_hex" # or similar high entropy category
-                    else:
-                        pattern_name = "suspicious_short_value"
 
-                results.append({
-                    "file": path,
-                    "line": line_no,
-                    "value_snippet": snippet,
-                    "pattern": pattern_name,
-                    "severity": classify_severity(pattern_name, snippet)
-                })
+                # 🔥 ADD THIS BLOCK
+                severity = classify_severity(pattern_name or "random_hex", snippet)
+                f["severity"] = severity
+                f["file"] = path
+                f["line"] = line_no
+                results.append(f)
 
     return results
 
@@ -230,18 +220,38 @@ def scan_paths(paths: List[str]) -> List[Dict]:
     return all_results
 
 
-def run_secret_scan(path):
-    import os
+def run_secret_scan(path: str) -> List[Dict]:
+    """
+    Scan a file or directory recursively for secrets.
+    Always returns a LIST (never None) to satisfy tests and CLI usage.
+    """
+
     candidates = []
+
+    # Case 1: Direct file path
     if os.path.isfile(path):
         candidates.append(path)
-    else:
-        for dirpath, _, filenames in os.walk(path):
-            for f in filenames:
-                candidates.append(os.path.join(dirpath, f))
 
-    findings = scan_paths(candidates)
-    print(f"Scanning secrets in {path}...")
-    for f in findings:
-        print(f"[{f['severity']}] {f['file']}:{f['line']} {f['pattern']} -> {f['value_snippet']}")
+    # Case 2: Directory → walk recursively
+    elif os.path.isdir(path):
+        for root, _, files in os.walk(path):
+            for f in files:
+                full_path = os.path.join(root, f)
+                candidates.append(full_path)
+
+    else:
+        # Invalid path -> return empty list (not None)
+        return []
+
+    all_results = []
+
+    for file_path in candidates:
+        print(f"Scanning secrets in {file_path}...")
+        findings = scan_file(file_path)
+
+        # scan_file MUST return a list; if not, fail safely
+        if isinstance(findings, list):
+            all_results.extend(findings)
+
+    return all_results
 
