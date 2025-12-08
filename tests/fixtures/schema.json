@@ -1,0 +1,7 @@
+{
+  "required": ["API_KEY", "PORT"],
+  "patterns": {
+    "API_KEY": "^.{3,}$",
+    "PORT": "^[0-9]+$"
+  }
+}
