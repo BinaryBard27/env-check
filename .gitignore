@@ -214,3 +214,4 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 >>>>>>> f3992a212d3162ed8e0e0a42c35894ecb8831340
+envcheck.yml
