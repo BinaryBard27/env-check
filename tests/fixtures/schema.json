@@ -1,7 +1,21 @@
 {
-  "required": ["API_KEY", "PORT"],
-  "patterns": {
-    "API_KEY": "^.{3,}$",
-    "PORT": "^[0-9]+$"
+  "DATABASE_URL": {
+    "required": true,
+    "type": "str",
+    "non_empty": true
+  },
+  "PORT": {
+    "required": true,
+    "type": "int",
+    "min": 1024,
+    "max": 65535
+  },
+  "MODE": {
+    "required": true,
+    "enum": ["dev", "staging", "prod"]
+  },
+  "API_KEY": {
+    "required": false,
+    "pattern": "^sk_[a-zA-Z0-9]+$"
   }
 }

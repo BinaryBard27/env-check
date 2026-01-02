@@ -1,11 +1,9 @@
 # Changelog
 
-## [1.0.0] - 2025-11-21
+## v1.0.0
 
-### Added
-- Initial release of env-check
-- Schema-based validation
-- Linter for .env files
-- Autofix capabilities
-- JSON output support
-- Example generation
+- Initial stable open-source release
+- Schema-based environment validation
+- CI-safe exit codes
+- Secret flag enforcement
+- Drift detection support

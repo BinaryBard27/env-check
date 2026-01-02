@@ -13,7 +13,7 @@ SIGNATURES = {
     "GITHUB_PAT": re.compile(r"ghp_[A-Za-z0-9]{36}"),
     "JWT_TOKEN": re.compile(r"[A-Za-z0-9-_]{20,}\.[A-Za-z0-9-_]{20,}\.[A-Za-z0-9-_]{20,}"),
     "PRIVATE_KEY": re.compile(r"-----BEGIN (RSA |OPENSSH |EC )?PRIVATE KEY-----"),
-    "STRIPE_LIVE_KEY": re.compile(r"sk_live_[0-9a-zA-Z]{24}"),
+    "STRIPE_KEY": re.compile(r"sk_(?:live|test)_[0-9a-zA-Z]{24}"),
     "STRIPE_TEST_KEY": re.compile(r"sk_test_[0-9a-zA-Z]{24}"),
     "GOOGLE_API_KEY": re.compile(r"AIza[0-9A-Za-z\-_]{35}"),
     "HEX_32": re.compile(r"\b[0-9a-fA-F]{32}\b"),

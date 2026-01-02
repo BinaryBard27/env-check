@@ -1,4 +1,4 @@
-from env_check.loader import load_env_file
+from env_check.cli import load_env_file
 
 def test_load_env_file_basic():
     env = load_env_file("tests/fixtures/sample.env")

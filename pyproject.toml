@@ -4,18 +4,32 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "env-check"
-version = "1.2.0"
-description = "A CLI tool to validate, migrate, and lint .env files using schemas and plugins."
-authors = [
-    { name = "Sherwin Dmello", email = "your-email@example.com" }
-]
+version = "1.0.0"
+description = "A strict, CI-ready environment variable validator with schema enforcement, drift detection, and secret scanning."
 readme = "README.md"
 requires-python = ">=3.9"
 license = { text = "MIT" }
 
+authors = [
+    { name = "Sherwin Dmello", email = "sherwindmello27@gmail.com" }
+]
+
 dependencies = [
     "pyyaml>=6.0",
     "rich>=13.0",
+]
+
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Environment :: Console",
+    "Topic :: Software Development :: Build Tools",
+    "Topic :: Security"
 ]
 
 [project.urls]
@@ -24,4 +38,7 @@ Repository = "https://github.com/BinaryBard27/env-check"
 Issues = "https://github.com/BinaryBard27/env-check/issues"
 
 [project.scripts]
-env-check = "env_check.main:cli"
+env-check = "env_check.cli:main"
+
+[tool.setuptools]
+packages = ["env_check"]

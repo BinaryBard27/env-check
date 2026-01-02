@@ -11,7 +11,7 @@ SECRET_PATTERNS = {
 
     "google_api_key": re.compile(r"AIza[0-9A-Za-z\-_]{35}"),
 
-    "stripe_live_key": re.compile(r"sk_live_[0-9a-zA-Z]{20,}"),
+    "stripe_key": re.compile(r"sk_(?:live|test)_[0-9a-zA-Z]{20,}"),
     "stripe_test_key": re.compile(r"sk_test_[0-9a-zA-Z]{20,}"),
 
     "twilio_key": re.compile(r"SK[0-9a-fA-F]{32}"),
