@@ -41,7 +41,7 @@ Most projects rely on `.env` files that:
 ### Standard Installation
 
 ```bash
-pip install env-check
+pip install envcheck-cli
 ```
 
 ### Recommended for CI / Global Usage
