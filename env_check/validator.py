@@ -3,13 +3,13 @@ import os
 from .severity import Severity
 
 # Import validator classes dynamically
-from .validators.base import BaseValidator
-from .validators.type_validator import TypeValidator
-from .validators.regex_validator import RegexValidator
-from .validators.enum_validator import EnumValidator
-from .validators.range_validator import RangeValidator
-from .validators.file_exists_validator import FileExistsValidator
-from .validators.non_empty_validator import NonEmptyValidator
+from env_check.validators.base import BaseValidator
+from env_check.validators.type_validator import TypeValidator
+from env_check.validators.regex_validator import RegexValidator
+from env_check.validators.enum_validator import EnumValidator
+from env_check.validators.range_validator import RangeValidator
+from env_check.validators.file_exists_validator import FileExistsValidator
+from env_check.validators.non_empty_validator import NonEmptyValidator
 
 DEFAULT_SEVERITY = Severity.ERROR
 
