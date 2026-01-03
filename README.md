@@ -29,6 +29,7 @@ These pass a presence check. They fail at runtime — usually deep inside applic
 | CI/CD-friendly output    | JSON + exit code | Noisy     | Partial   | Silent errors |
 | Auto-loads env into app  | No (by design)   | Yes       | Yes       | Yes           |
 
+
 env-check does not load your environment. It validates it. You handle loading separately — this keeps the tool composable and safe for pipelines.
 
 ---
@@ -36,7 +37,13 @@ env-check does not load your environment. It validates it. You handle loading se
 ## Installation
 
 ```bash
-pip install env-check
+pip install envcheck-cli
+```
+
+### Recommended for CI / Global Usage
+
+```bash
+pipx install envcheck-cli
 ```
 
 **Requirements:** Python 3.8+
