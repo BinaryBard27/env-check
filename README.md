@@ -47,7 +47,7 @@ pip install envcheck-cli
 ### Recommended for CI / Global Usage
 
 ```bash
-pipx install env-check
+pipx install envcheck-cli
 ```
 
 ### Development Installation
