@@ -10,33 +10,33 @@
 
 ---
 
-## 🎯 Why env-check exists
+ Why env-check exists
 
 Most projects rely on `.env` files that:
 
-- ❌ **Drift between environments** — dev, staging, and prod configurations diverge
-- ❌ **Miss required variables** — critical settings are missing until runtime
-- ❌ **Contain invalid values** — wrong formats, out-of-range numbers, invalid URLs
-- ❌ **Accidentally leak secrets** — API keys and passwords committed to repos
-- ❌ **Fail silently until runtime** — errors only surface in production
+- Drift between environments** — dev, staging, and prod configurations diverge
+- Miss required variables** — critical settings are missing until runtime
+- Contain invalid values** — wrong formats, out-of-range numbers, invalid URLs
+- Accidentally leak secrets** — API keys and passwords committed to repos  
+- Fail silently until runtime** — errors only surface in production
 
-**Existing tools validate presence.**  
-**env-check validates correctness, consistency, and safety.**
+Existing tools validate presence.
+env-check validates correctness, consistency, and safety.
 
-## ✨ What env-check does
+What env-check does
 
-- ✅ **Validates .env files against a schema** — enforce structure and types
-- ✅ **Enforces required keys and patterns** — regex, enums, ranges, types
-- ✅ **Detects environment drift** — compare configurations across environments
-- ✅ **Scans for high-risk secrets** — heuristic detection of leaked credentials
-- ✅ **Produces CI-friendly output** — JSON format for automation
-- ✅ **Fails fast with meaningful exit codes** — integrate seamlessly into pipelines
+-Validates .env files against a schema** — enforce structure and types
+-Enforces required keys and patterns** — regex, enums, ranges, types
+-Detects environment drift** — compare configurations across environments
+-Scans for high-risk secrets** — heuristic detection of leaked credentials
+-Produces CI-friendly output** — JSON format for automation
+-Fails fast with meaningful exit codes** — integrate seamlessly into pipelines
 
-> **This is prevention, not cleanup.**
+>This is prevention, not cleanup.
 
 ---
 
-## 📦 Installation
+##  Installation
 
 ### Standard Installation
 
@@ -60,7 +60,7 @@ pip install -e .
 
 ---
 
-## 🚀 Quick Start
+##  Quick Start
 
 ### Basic Validation
 
@@ -104,7 +104,7 @@ env-check --config envcheck.yml
 
 ---
 
-## 📋 Schema Examples
+##  Schema Examples
 
 ### JSON Schema Format
 
@@ -162,18 +162,18 @@ variables:
     non_empty: true
 ```
 
-**Schema capabilities:**
+Schema capabilities:
 
-- ✅ **Enforces presence** — required variables must exist
-- ✅ **Prevents invalid values** — type checking, regex patterns, enums
-- ✅ **Flags sensitive keys** — secret scanning for leaked credentials
-- ✅ **Range validation** — numeric ranges for ports, timeouts, etc.
-- ✅ **File existence** — validate file paths exist
-- ✅ **URL validation** — ensure URLs are properly formatted
+- Enforces presence — required variables must exist
+- Prevents invalid values — type checking, regex patterns, enums
+- Flags sensitive keys — secret scanning for leaked credentials
+- Range validation — numeric ranges for ports, timeouts, etc.
+- File existence — validate file paths exist
+- URL validation — ensure URLs are properly formatted
 
 ---
 
-## 🔧 Available Validators
+##  Available Validators
 
 env-check supports multiple validation types:
 
@@ -190,7 +190,7 @@ env-check supports multiple validation types:
 
 ---
 
-## 🔄 CI/CD Integration
+## CI/CD Integration
 
 ### GitHub Actions
 
@@ -241,11 +241,11 @@ jobs:
       - run: env-check --strict --format json
 ```
 
-**If validation fails:**
+If validation fails:
 
-- ❌ CI fails immediately
-- 🛑 Deployment stops
-- 🚫 Broken config never ships
+-  CI fails immediately
+-  Deployment stops
+-  Broken config never ships
 
 ---
 
@@ -262,7 +262,7 @@ jobs:
 
 ---
 
-## 📈 How env-check Compares
+## How env-check Compares
 
 | Feature | env-check | check-env | envalid (Node) |
 |---------|-----------|-----------|----------------|
@@ -278,7 +278,7 @@ jobs:
 
 ---
 
-## 🔒 Security & Limitations
+##  Security & Limitations
 
 ### Secret Detection
 
@@ -296,10 +296,10 @@ env-check provides basic secret detection through schema flags. Understanding it
 - **Not a replacement for dedicated scanners** — Should be used alongside tools like TruffleHog, GitGuardian, or GitHub's secret scanning
 
 **Important limitations:**
-- ⚠️ **Heuristic-based** — Detection relies on schema flags, not content analysis
-- ⚠️ **False positives possible** — Variables marked as secrets may not actually contain sensitive data
-- ⚠️ **Manual configuration required** — You must explicitly mark variables as secrets in your schema
-- ⚠️ **Preventive only** — Designed to catch mistakes before deployment, not to audit existing repositories
+-  **Heuristic-based** — Detection relies on schema flags, not content analysis
+-  **False positives possible** — Variables marked as secrets may not actually contain sensitive data
+-  **Manual configuration required** — You must explicitly mark variables as secrets in your schema
+-  **Preventive only** — Designed to catch mistakes before deployment, not to audit existing repositories
 
 **Example:**
 ```json
@@ -357,14 +357,14 @@ This indicates drift (missing variable), but env-check does not automatically id
 
 ### Best Practices
 
-- ✅ **Use it early in the pipeline** — validate before deployment
-- ✅ **Combine with other tools** — use alongside dedicated secret scanners
-- ✅ **Review flagged items** — investigate all secret warnings
-- ✅ **Keep schemas updated** — maintain schema as your config evolves
+-  **Use it early in the pipeline** — validate before deployment
+-  **Combine with other tools** — use alongside dedicated secret scanners
+-  **Review flagged items** — investigate all secret warnings
+-  **Keep schemas updated** — maintain schema as your config evolves
 
 ---
 
-## 📖 Usage Examples
+##  Usage Examples
 
 ### Example 1: Basic Validation
 
@@ -405,7 +405,7 @@ env-check --schema schema.json --env .env.prod --strict
 
 ---
 
-## 🐛 Troubleshooting
+##  Troubleshooting
 
 ### Common Issues
 
