@@ -1,74 +1,195 @@
-# env-check 🛡️
+# env-check
 
-**Stop deploying time bombs. Validate your env before it explodes.**
-
-Your .env file is lying to you. `PORT=banana`. `DATABASE_URL=`. `API_KEY=undefined`. Most tools will happily load these into your process without a single complaint. Your app starts anyway—until it hits production and crashes when a deep function finally realizes the configuration was garbage.
-
-**env-check is the Zero-Trust guard for your environment secrets.** It assumes your environment is broken and proves it isn't before a single line of your application logic runs.
+A pre-deployment environment validation tool. Validates type correctness, required presence, and environment-specific rules before your application starts — not after it crashes.
 
 ---
 
-## 🌊 Why env-check? (The Purple Ocean)
+## The Problem
 
-The industry is full of passive "loaders" like `dotenv` and `pythondotenv`. They are glorified file readers that only answer, "Did I find the file?".
+Most `.env` loaders (dotenv, python-dotenv) only check if the file exists and load its values into the process. They do not validate those values. Common failures that reach production:
 
-**env-check is a pre-deployment config guardrail** that answers, "Is this configuration safe to ship?".
+- `PORT=banana` — present, but not a valid integer
+- `DATABASE_URL=` — present, but empty
+- `API_KEY=undefined` — present, but a literal string "undefined"
 
-### Zero-Trust Validation
-We don't just check for presence; we enforce value correctness, safety, and consistency.
+These pass a presence check. They fail at runtime — usually deep inside application logic, far from where the bad config was loaded.
 
-### Explicit, Not Implicit
-No magic autoloading that swallows errors. If your config is broken, we fail loudly and clearly.
-
-### Environment-Specific Strictness
-Define schemas that know the difference between `.env.dev` and `.env.prod`.
-
-### CI/CD Ready
-Pure JSON output and exit codes designed for pipelines—zero promotional noise to break your scripts.
+**env-check validates before execution.** If your config is broken, your app refuses to start. The error is explicit, structured, and caught at startup — not in production.
 
 ---
 
-## ⚔️ The Comparison: Why the "Standard" Tools Fail
+## How It Differs from Other Tools
 
-| Feature | env-check | dotenv | envvalid | pythondotenv |
-|---------|-----------|--------|----------|--------------|
-| **Philosophy** | Gatekeeper | Loader | Validator | Loader |
-| **Strictness** | Zero-Trust | Presence Only | High | Presence Only |
-| **Logic** | Implicit Loading | No (Secure) | Yes | No (Dangerous) |
-| **Env-Specific Logic** | Native | No | Partial | No |
-| **Pipeline Safety** | JSON/Stderr | Stdout Noise | Good | Silent Errors |
+| Feature                  | env-check        | dotenv    | envalid   | python-dotenv |
+|--------------------------|------------------|-----------|-----------|---------------|
+| Philosophy               | Gatekeeper       | Loader    | Validator | Loader        |
+| Type enforcement         | Yes              | No        | Yes       | No            |
+| Empty value detection    | Yes              | No        | Partial   | No            |
+| Environment-specific rules | Yes            | No        | Partial   | No            |
+| CI/CD-friendly output    | JSON + exit code | Noisy     | Partial   | Silent errors |
+| Auto-loads env into app  | No (by design)   | Yes       | Yes       | Yes           |
+
+env-check does not load your environment. It validates it. You handle loading separately — this keeps the tool composable and safe for pipelines.
 
 ---
 
-## 🛠️ Quick Start
-
-**"One config. Zero guesswork. Instant validation."**
-
-### Installation
+## Installation
 
 ```bash
 pip install env-check
 ```
 
-### Usage
+**Requirements:** Python 3.8+
+
+---
+
+## Quick Start
+
+**1. Define a schema**
+
+```json
+// env.schema.json
+{
+  "PORT": {
+    "type": "integer",
+    "required": true,
+    "range": [1024, 65535]
+  },
+  "DATABASE_URL": {
+    "type": "url",
+    "required": true,
+    "environments": ["production", "staging"]
+  },
+  "DEBUG": {
+    "type": "boolean",
+    "default": false
+  },
+  "API_KEY": {
+    "type": "string",
+    "required": true,
+    "disallow": ["undefined", "null", ""]
+  }
+}
+```
+
+**2. Run validation in your app entrypoint**
 
 ```python
 from env_check import EnvGuard
 
-# Define your wall
 guard = EnvGuard(schema="env.schema.json")
+guard.protect()  # Raises EnvValidationError if config is invalid. App exits here.
 
-# envcheck assumes your env is broken—and proves it isn't.
-# If it's wrong, it fails LOUDLY here.
-guard.protect()
+# Your application logic starts only after this point.
+```
+
+**3. Or run from the CLI**
+
+```bash
+env-check --schema env.schema.json --env production
 ```
 
 ---
 
-## 💀 Stop Shipping "undefined"
+## CLI Reference
 
-Passive loaders answer "did it load?" — env-check ensures you survive production.
+```
+Usage: env-check [OPTIONS]
 
-**Fail at startup or don't run at all. Strong typing or no execution. Not validation. Enforcement.**
+Options:
+  --schema  PATH       Path to the schema file (JSON or YAML). [required]
+  --file    PATH       Path to the .env file. Defaults to .env
+  --env     TEXT       Environment name (e.g. production, staging, dev)
+  --output  [json|text] Output format. Defaults to text
+  --strict             Fail on any unknown keys not defined in schema
+  --help               Show this message and exit.
+```
 
-⭐ **Star the Repo to join the Zero-Trust movement.** 🛡️
+**Exit codes:**
+- `0` — All validations passed
+- `1` — One or more validations failed
+- `2` — Schema or config file not found
+
+**JSON output example (for CI pipelines):**
+
+```json
+{
+  "status": "failed",
+  "errors": [
+    { "key": "PORT", "error": "Expected integer, got 'banana'" },
+    { "key": "API_KEY", "error": "Value is disallowed: 'undefined'" }
+  ]
+}
+```
+
+---
+
+## Python API Reference
+
+### `EnvGuard(schema, env_file=".env", environment=None, strict=False)`
+
+| Parameter     | Type   | Description |
+|---------------|--------|-------------|
+| `schema`      | `str`  | Path to your schema file (JSON or YAML) |
+| `env_file`    | `str`  | Path to the `.env` file. Defaults to `.env` |
+| `environment` | `str`  | Current environment name for env-specific rules |
+| `strict`      | `bool` | Fail on keys present in `.env` but not in schema |
+
+### `guard.protect()`
+
+Runs validation. Raises `EnvValidationError` with a detailed report if any rule fails. Does not return a value — either passes or halts execution.
+
+### `guard.validate()`
+
+Same as `protect()` but returns a result object instead of raising. Useful if you want to handle the error yourself.
+
+```python
+result = guard.validate()
+if not result.valid:
+    for error in result.errors:
+        print(error.key, error.message)
+```
+
+---
+
+## Schema Rules Reference
+
+| Rule          | Types supported         | Description |
+|---------------|--------------------------|-------------|
+| `type`        | `string`, `integer`, `float`, `boolean`, `url`, `email`, `json` | Enforces value type |
+| `required`    | All                      | Fails if key is missing or empty |
+| `default`     | All                      | Used when key is absent (only if not `required`) |
+| `disallow`    | `string`                 | List of values that are explicitly rejected |
+| `range`       | `integer`, `float`       | `[min, max]` bounds check |
+| `pattern`     | `string`                 | Regex the value must match |
+| `environments`| All                      | Rule applies only to specified environments |
+
+---
+
+## CI/CD Integration
+
+**GitHub Actions example:**
+
+```yaml
+- name: Validate environment config
+  run: env-check --schema env.schema.json --env production --output json
+```
+
+Pipe the JSON output to any log aggregator or slack notifier. Exit code `1` will fail the pipeline automatically.
+
+---
+
+## Contributing
+
+1. Fork the repo
+2. Create a branch: `git checkout -b feature/your-feature`
+3. Commit your changes: `git commit -m "Add your feature"`
+4. Push and open a pull request
+
+Please open an issue before submitting large changes.
+
+---
+
+## License
+
+MIT — see [LICENSE](LICENSE) for details.
