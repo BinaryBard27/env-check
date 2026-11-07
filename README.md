@@ -1,6 +1,6 @@
 # env-check
 
-A strict, CI-ready environment variable validator. It checks your `.env` values against a schema — type, presence, pattern, range, enum, and more — **before** your application starts, and returns CI-friendly exit codes.
+A strict, CI-ready environment variable validator. It checks your `.env` values against a schema — type, presence, pattern, range, enum, and more  **before** your application starts, and returns CI-friendly exit codes.
 
 `env-check` does not modify your environment and does not load variables into your process. It validates, reports, and exits with a code. You handle loading separately.
 
