@@ -1,5 +1,27 @@
 # Changelog
 
+## v1.1.0
+
+### Added
+- **Production-Ready Environment Drift Detection (`env-check drift`)**:
+  - Compare multiple target environments against a base environment (source of truth).
+  - Detect missing variables, unexpected variables, empty variables, type inconsistencies, and value divergences.
+  - Multi-file comparison via repeated `--compare` arguments (`--compare .env.staging --compare .env.prod`).
+  - Strict secret safety: sensitive variables and schema-declared secrets are never displayed in plaintext in stdout, stderr, or JSON reports; values are masked with `[MASKED]`.
+  - Constant-time secret comparison (`hmac.compare_digest`) prevents timing attacks.
+  - Optional `--mask-names` flag to mask sensitive variable names.
+  - Schema consistency rules for cross-environment validation:
+    - `same_value`: enforces identical values across environments.
+    - `allow_different_values`: allows variable values to diverge across environments.
+    - `allowed_in`: restricts variable presence to designated environments (e.g. `["prod"]`).
+    - `required_in`: designates environments where a variable is strictly required.
+  - CLI control flags:
+    - `--fail-on [warning|error|critical]`: configure minimum severity threshold for CI failure.
+    - `--strict`: escalate warnings (e.g. unexpected variables) to exit code 1.
+    - `--format [table|json]`: structured JSON output or formatted terminal tables.
+  - CI-safe exit codes: `0` (clean / in-sync), `1` (drift threshold exceeded), `2` (invalid file/schema), `3` (weak secret placeholder detected).
+  - Windows console encoding compatibility: replaced problematic Unicode glyphs with Windows-safe indicators.
+
 ## v1.0.2
 
 ### Fixed

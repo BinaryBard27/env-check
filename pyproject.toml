@@ -42,3 +42,6 @@ env-check = "env_check.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["env_check*"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]

@@ -1,6 +1,6 @@
 # env-check
 
-A strict, CI-ready environment variable validator. It checks your `.env` values against a schema — type, presence, pattern, range, enum, and more  **before** your application starts, and returns CI-friendly exit codes.
+A strict, CI-ready environment variable validator. It checks your `.env` values against a schema — type, presence, pattern, range, enum, and more — **before** your application starts, detects configuration drift across environments, and returns CI-friendly exit codes.
 
 `env-check` does not modify your environment and does not load variables into your process. It validates, reports, and exits with a code. You handle loading separately.
 
@@ -55,10 +55,105 @@ By default the schema file is `envcheck.yml` in the current directory, and the s
 
 ---
 
+## Environment Drift Detection
+
+`env-check drift` compares multiple environment files against a base environment (source of truth) to detect configuration divergence before deployment:
+
+```bash
+env-check drift \
+  --base examples/.env.base \
+  --compare examples/.env.staging \
+  --compare examples/.env.prod
+```
+
+### What it detects
+
+1. **Missing variables:** Variables defined in the base environment (or required by schema) that are absent in a target environment.
+2. **Unexpected variables:** Variables found in a target environment that are absent from base and undeclared in schema.
+3. **Empty values:** Variables that are empty when non-empty values are required.
+4. **Type inconsistencies:** Variables whose values violate declared types or diverge from inferred base types (e.g. integer vs string).
+5. **Value divergences:** Inconsistent values across environments when values are required to match.
+6. **Consistency rule violations:** Violations of cross-environment rules such as `same_value`, `allowed_in`, or `required_in`.
+
+### Drift CLI Reference
+
+```
+Usage: env-check drift [OPTIONS]
+
+Options:
+  --base, -b      PATH   Path to base .env file (source of truth). Required.
+  --compare, -c   PATH   Path to comparison .env file. Can be specified multiple
+                         times or with multiple file arguments. Required.
+  --schema, -s    PATH   Path to schema file (JSON or YAML).
+  --format        [json|table]
+                         Output format. Default: table
+  --strict               Treat warnings (e.g. unexpected variables) as errors
+  --fail-on       [warning|warn|error|critical]
+                         Fail run if maximum issue severity meets or exceeds threshold
+  --mask-names           Mask sensitive variable names in output
+```
+
+### Drift Example Output
+
+**Table (default):**
+
+```
+              Environment Drift Report (Base: examples/.env.base)              
++-----------------------------------------------------------------------------+
+| ENVIRONMENT       | VARIABLE | ISSUE TYPE      | SEVERITY | DETAIL          |
+|-------------------+----------+-----------------+----------+-----------------|
+| examples/.env.stg | API_KEY  | unexpected_var  | WARN     | Unexpected ...  |
+| examples/.env.stg | BAZ      | missing_variab  | ERROR    | Variable 'BAZ'  |
+| examples/.env.prd | BAZ      | value_mismatch  | WARN     | Value for 'BAZ' |
++-----------------------------------------------------------------------------+
+
+Summary: 2 environment(s) checked, 3 drift issue(s) detected (0 critical, 1 error, 2 warning, 0 info).
+```
+
+**JSON (`--format json`):**
+
+```json
+{
+  "base": "examples/.env.base",
+  "schema": "examples/envcheck.json",
+  "environments": [
+    {
+      "environment": "examples/.env.staging",
+      "status": "drift_detected",
+      "issues_count": 2,
+      "issues": [
+        {
+          "variable": "API_KEY",
+          "type": "unexpected_variable",
+          "severity": "WARN",
+          "message": "Unexpected variable 'API_KEY' present in 'examples/.env.staging' but not in base",
+          "environment": "examples/.env.staging",
+          "is_secret": true,
+          "base_value": null,
+          "compare_value": "[MASKED]"
+        }
+      ]
+    }
+  ],
+  "summary": {
+    "total_environments": 1,
+    "total_issues": 1,
+    "has_drift": true,
+    "max_severity": "WARN",
+    "exit_code": 0
+  }
+}
+```
+
+---
+
 ## CLI Reference
 
 ```
-Usage: env-check [OPTIONS]
+Usage: env-check [OPTIONS] [COMMAND]
+
+Commands:
+  drift                  Detect configuration drift across multiple environment files
 
 Options:
   --schema, -s   PATH   Path to schema file (JSON or YAML).
@@ -79,37 +174,12 @@ Options:
 
 | Code | Meaning |
 |------|---------|
-| `0`  | All validations passed (warnings allowed without `--strict`) |
-| `1`  | One or more validation errors, or warnings with `--strict` |
+| `0`  | All validations passed / environments in sync (warnings allowed without `--strict`) |
+| `1`  | One or more validation errors, drift exceeding failure threshold, or warnings with `--strict` |
 | `2`  | Schema or env file not found / unparseable |
 | `3`  | A secret-flagged variable has a **weak or placeholder value** (e.g. empty, `changeme`, repeated characters), or any secret-flagged value with `--fail-on-secrets` |
 
 Exit code `3` takes precedence over `1`.
-
-### Output
-
-**Table (default):**
-
-```
-VARIABLE       STATUS   SEVERITY  DETAIL
-DATABASE_URL   OK       INFO      Value: postgresql://localhost:5432/mydb
-PORT           OK       INFO      Value: 8080
-MODE           INVALID  ERROR     enum: value not in allowed set: ['dev', 'staging', 'prod']
-```
-
-**JSON (`--format json`)** — only JSON goes to stdout, safe for pipelines:
-
-```json
-{
-  "results": [
-    { "variable": "PORT", "ok": true, "severity": "INFO", "detail": "Value: 8080" },
-    { "variable": "MODE", "ok": false, "severity": "ERROR", "detail": "enum: value not in allowed set: ['dev', 'staging', 'prod']" }
-  ],
-  "secrets": [
-    { "variable": "API_KEY", "reason": "Flagged as secret in schema", "weak": true }
-  ]
-}
-```
 
 ---
 
@@ -127,71 +197,80 @@ MODE           INVALID  ERROR     enum: value not in allowed set: ['dev', 'stagi
 | `file_exists` | All | Truthy: the value must be an existing path |
 | `non_empty` | All | Truthy: the value must not be empty or whitespace-only |
 | `severity` | All | `info`, `warn`/`warning`, `error`, `critical` — severity used when a rule fails (default `error`; missing required is always `critical`) |
-| `secret` | All | Truthy: the variable is reported as a secret (never printed). See [Secrets](#secrets) |
+| `secret` | All | Truthy: the variable is treated as a secret (never printed in plaintext). See [Secrets](#secrets) |
+| `same_value` | Drift | Truthy: variable must have the exact same value across all environments |
+| `allow_different_values` | Drift | Truthy: variable is permitted to have differing values across environments |
+| `allowed_in` | Drift | List of environment names/patterns where variable is permitted (e.g. `["prod"]`) |
+| `required_in` | Drift | List of environment names where variable is strictly required (e.g. `["prod", "staging"]` or `["all"]`) |
 
 Unknown rule keys produce a warning (exit code stays `0` unless `--strict`).
 
-Missing required variables are **always** CRITICAL. Validation errors and criticals both map to exit code `1` in the CLI.
+---
 
-## Secrets
+## Secrets & Safe Masking
 
-Variables with `"secret": true` are never printed with their values. Behavior:
+Security is enforced unconditionally across both validation and drift detection:
 
-- **Healthy value present** → reported (`ℹ️` in table mode, `"weak": false` in JSON), run **passes**.
-- **Weak/placeholder value** (empty, `changeme`, `undefined`, `null`, repeated characters like `aaaaaaaa`, …) → run **fails with exit code 3**.
-- **`--fail-on-secrets`** → any present value fails with exit code 3, for maximum strictness.
-- Missing **required** secrets are reported as weak (empty).
-
-## `--fix`
-
-With `--fix --env .env`, missing required keys are appended to the `.env` file:
-
-- a `.backup` copy is made first (`.backup.1`, `.backup.2`, … if one already exists — backups are never overwritten),
-- keys with a `default` in the schema get that default,
-- keys without a default get a `# TODO VAR=<value>` comment instead of a fake empty value.
-
-Validation then continues on the updated file.
+- **Never printed in plaintext:** Sensitive variables and schema-declared secrets (`"secret": true` or matching sensitive patterns like `*_KEY`, `*_SECRET`, `*_PASSWORD`, `*_TOKEN`) are masked with `[MASKED]`.
+- **Never included in JSON reports:** Values of sensitive variables are replaced with `[MASKED]` in JSON outputs.
+- **Timing-safe comparison:** Internal secret comparisons utilize `hmac.compare_digest` to prevent timing attacks.
+- **Weak value detection:** Placeholders (such as `changeme`, `placeholder`, `undefined`, `xxxx`) fail immediately with exit code 3.
+- **Never written to cache or logs:** Secrets are evaluated in memory and never persisted unmasked.
 
 ---
 
 ## CI/CD Integration
 
-**GitHub Actions:**
+**GitHub Actions - Drift Detection:**
+
+```yaml
+- name: Check Environment Drift
+  run: |
+    env-check drift \
+      --base examples/.env.base \
+      --compare examples/.env.staging \
+      --compare examples/.env.prod \
+      --schema examples/envcheck.json \
+      --fail-on error \
+      --format json
+```
+
+**GitHub Actions - Single Environment Validation:**
 
 ```yaml
 - name: Validate environment config
   run: env-check --schema envcheck.json --env .env.prod --format json
 ```
 
-Exit code `1` or `3` fails the step automatically; pipe the JSON output to any log aggregator.
-
-To validate the runner's own environment (where secrets come from GitHub secrets, not a file):
-
-```yaml
-- name: Validate runner environment
-  run: env-check --schema envcheck.json
-```
-
 ---
 
 ## Python API
 
-The engine is also usable as a library:
+`env-check` is also usable programmatically:
 
 ```python
-from env_check.validator import ValidatorEngine, ValidationResult
+# Validation
+from env_check.validator import ValidatorEngine
 
 schema = {
     "PORT": {"required": True, "type": "int", "min": 1024, "max": 65535},
-    "MODE": ["dev", "staging", "prod"],   # shorthand enum
+    "MODE": ["dev", "staging", "prod"],
 }
 
 engine = ValidatorEngine(schema, env=os.environ)
 results = engine.run()
-exit_code = engine.summarize_exit_code(results)  # 0, 1 or 2
+exit_code = engine.summarize_exit_code(results)
 
-for r in results:
-    print(r.variable, r.ok, r.severity.name, r.detail)
+# Drift Detection
+from env_check.drift import DriftDetector
+
+detector = DriftDetector(schema=schema, strict=False)
+report = detector.compare_files(
+    base_file="examples/.env.base",
+    compare_files=["examples/.env.staging", "examples/.env.prod"]
+)
+exit_code = report.compute_exit_code()
+report_dict = report.to_dict()
 ```
 
 ---
@@ -203,9 +282,8 @@ pip install -e ".[dev]"   # or: pip install -e . && pip install pytest
 pytest -q
 ```
 
-- `env_check/` — the package: CLI, config loader, validation engine, pluggable validators, output
-- `tests/` — unit + subprocess-based CLI tests (exit codes, JSON output, secrets)
-- `experimental/` — standalone prototypes (drift detection, anomaly detection, repo scanning, plugins). **Not part of the package, not imported, not tested.**
+- `env_check/` — the package: CLI, drift detection, config loader, validation engine, validators, output
+- `tests/` — unit, drift detection, and CLI subprocess tests
 - `examples/` — sample schemas and env files (all values are fake)
 
 ## License

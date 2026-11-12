@@ -3,7 +3,7 @@ import os
 import sys
 import json
 import shutil
-from typing import Dict, Any
+from typing import Dict, Any, List
 
 from env_check.config_loader import load_config
 from env_check.validator import ValidatorEngine
@@ -85,11 +85,123 @@ def detect_secrets(schema: Dict[str, Any], env: Dict[str, str]) -> list:
     return findings
 
 
+def handle_drift_command(args) -> int:
+    """Handle the 'drift' subcommand."""
+    from env_check.drift import DriftDetector, print_drift_table
+    # Flatten compare file arguments
+    compare_files: List[str] = []
+    for item in args.compare:
+        if isinstance(item, list):
+            compare_files.extend(item)
+        else:
+            compare_files.append(item)
+
+    # Validate base file exists
+    if not os.path.exists(args.base):
+        print(f"Base environment file not found: {args.base}", file=sys.stderr)
+        return 2
+
+    # Validate comparison files exist
+    for cf in compare_files:
+        if not os.path.exists(cf):
+            print(f"Comparison environment file not found: {cf}", file=sys.stderr)
+            return 2
+
+    # Load schema if specified
+    schema = {}
+    if args.schema:
+        if not os.path.exists(args.schema):
+            print(f"Schema file not found: {args.schema}", file=sys.stderr)
+            return 2
+        try:
+            schema = load_config(args.schema)
+        except Exception as e:
+            print(f"Failed to load schema: {e}", file=sys.stderr)
+            return 2
+
+    # Run drift detection
+    try:
+        detector = DriftDetector(
+            schema=schema,
+            schema_path=args.schema,
+            strict=args.strict,
+            fail_on=args.fail_on,
+        )
+        report = detector.compare_files(args.base, compare_files)
+    except FileNotFoundError as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    except Exception as e:
+        print(f"Drift detection error: {e}", file=sys.stderr)
+        return 2
+
+    # Render results
+    mask_names = getattr(args, "mask_names", False)
+    if args.format == "json":
+        data = report.to_dict(mask_names=mask_names)
+        # Update summary exit code according to strict and fail_on options
+        data["summary"]["exit_code"] = report.compute_exit_code(
+            strict=args.strict, fail_on=args.fail_on
+        )
+        print(json.dumps(data, indent=2))
+    else:
+        print_drift_table(report, mask_names=mask_names)
+
+    return report.compute_exit_code(strict=args.strict, fail_on=args.fail_on)
+
+
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(
         prog="env-check",
         description="env-check: validate environment variables using schema enforcement, drift detection, and secret scanning."
     )
+    
+    subparsers = parser.add_subparsers(dest="command")
+
+    # Drift subcommand
+    drift_parser = subparsers.add_parser(
+        "drift",
+        help="Compare multiple environment files for configuration drift"
+    )
+    drift_parser.add_argument(
+        "--base", "-b",
+        required=True,
+        help="Path to base .env file (source of truth)"
+    )
+    drift_parser.add_argument(
+        "--compare", "-c",
+        action="append",
+        nargs="+",
+        required=True,
+        help="Path to comparison .env file (can be specified multiple times)"
+    )
+    drift_parser.add_argument(
+        "--schema", "-s",
+        help="Path to schema file (JSON or YAML)"
+    )
+    drift_parser.add_argument(
+        "--format",
+        choices=["json", "table"],
+        default="table",
+        help="Output format (default: table)"
+    )
+    drift_parser.add_argument(
+        "--strict",
+        action="store_true",
+        help="Treat warnings as errors"
+    )
+    drift_parser.add_argument(
+        "--fail-on",
+        choices=["warning", "warn", "error", "critical"],
+        help="Fail on specified severity level"
+    )
+    drift_parser.add_argument(
+        "--mask-names",
+        action="store_true",
+        help="Mask sensitive variable names in output"
+    )
+
+    # Top-level args for validation
     parser.add_argument(
         "--schema", "-s",
         help="Path to schema file (JSON or YAML)"
@@ -131,6 +243,11 @@ def parse_args(argv=None):
 def main(argv=None):
     args = parse_args(argv)
     
+    # Check if drift subcommand was called
+    if getattr(args, "command", None) == "drift":
+        return handle_drift_command(args)
+
+    # Standard validation workflow
     # Determine schema file path
     schema_path = args.schema or "envcheck.yml"
     if not os.path.exists(schema_path):

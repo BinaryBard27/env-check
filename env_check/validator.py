@@ -94,7 +94,9 @@ class ValidatorEngine:
             allowed_keys = {
                 "required", "type", "regex", "enum",
                 "range", "file_exists", "non_empty", "severity",
-                "min", "max", "pattern", "secret"
+                "min", "max", "pattern", "secret", "default",
+                "same_value", "allow_different_values",
+                "allowed_in", "allowed_only_in", "required_in"
             }
 
             unknown = set(rules.keys()) - allowed_keys
