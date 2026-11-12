@@ -2,6 +2,35 @@
 
 A strict, CI-ready environment variable validator. It checks your `.env` values against a schema — type, presence, pattern, range, enum, and more — **before** your application starts, detects configuration drift across environments, and returns CI-friendly exit codes.
 
+---
+
+## The Problem
+
+Most `.env` loaders (dotenv, python-dotenv) only check if the file exists and load its values into the process. They do not validate those values. Common failures that reach production:
+
+- `PORT=banana` — present, but not a valid integer
+- `DATABASE_URL=` — present, but empty
+- `API_KEY=undefined` — present, but a literal string "undefined"
+
+These pass a presence check. They fail at runtime — usually deep inside application logic, far from where the bad config was loaded.
+
+**env-check validates before execution.** If your config is broken, your app refuses to start. The error is explicit, structured, and caught at startup — not in production.
+
+---
+
+## How It Differs from Other Tools
+
+| Feature                  | env-check        | dotenv    | envalid   | python-dotenv |
+|--------------------------|------------------|-----------|-----------|---------------|
+| Philosophy               | Gatekeeper       | Loader    | Validator | Loader        |
+| Type enforcement         | Yes              | No        | Yes       | No            |
+| Empty value detection    | Yes              | No        | Partial   | No            |
+| Environment-specific rules | Yes            | No        | Partial   | No            |
+| CI/CD-friendly output    | JSON + exit code | Noisy     | Partial   | Silent errors |
+| Auto-loads env into app  | No (by design)   | Yes       | Yes       | Yes           |
+
+
+env-check does not load your environment. It validates it. You handle loading separately — this keeps the tool composable and safe for pipelines.
 `env-check` does not modify your environment and does not load variables into your process. It validates, reports, and exits with a code. You handle loading separately.
 
 ---
@@ -9,6 +38,13 @@ A strict, CI-ready environment variable validator. It checks your `.env` values 
 ## Installation
 
 ```bash
+pip install envcheck-cli
+```
+
+### Recommended for CI / Global Usage
+
+```bash
+pipx install envcheck-cli
 pip install env-check   # package name: envcheck-cli
 ```
 
