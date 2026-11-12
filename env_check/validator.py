@@ -34,6 +34,8 @@ class ValidatorEngine:
     config: dict mapping variable -> rule dict
     env: mapping to check (defaults to os.environ)
     """
+    KNOWN_TYPES = ("int", "integer", "float", "bool", "boolean", "str", "string")
+
     def __init__(self, config: Dict[str, Any], env: Dict[str, str] = None):
         self.config = config or {}
         self.env = env if env is not None else os.environ.copy()
@@ -57,12 +59,6 @@ class ValidatorEngine:
             if isinstance(rules, list):
                 rules = {"enum": rules}
 
-            # Normalize shorthand min/max into range
-            if "min" in rules or "max" in rules:
-                rules["range"] = {
-                    k: rules[k] for k in ("min", "max") if k in rules
-                }
-
             # Hard fail on invalid rule types
             if not isinstance(rules, dict):
                 results.append(
@@ -75,19 +71,44 @@ class ValidatorEngine:
                 )
                 continue
 
+            # Copy so we never mutate the caller's schema
+            rules = dict(rules)
+
+            # 'pattern' is an accepted alias for 'regex'
+            if "pattern" in rules:
+                rules.setdefault("regex", rules.pop("pattern"))
+
+            # Normalize shorthand min/max into range (merged with explicit range)
+            if "min" in rules or "max" in rules:
+                base_range = rules.get("range")
+                if not isinstance(base_range, dict):
+                    base_range = {}
+                range_dict = dict(base_range)
+                for k in ("min", "max"):
+                    if k in rules:
+                        range_dict[k] = rules[k]
+                rules["range"] = range_dict
+
             warnings = []
 
             allowed_keys = {
                 "required", "type", "regex", "enum",
                 "range", "file_exists", "non_empty", "severity",
-                "min", "max"
+                "min", "max", "pattern", "secret", "default",
+                "same_value", "allow_different_values",
+                "allowed_in", "allowed_only_in", "required_in"
             }
 
             unknown = set(rules.keys()) - allowed_keys
             if unknown:
                 warnings.append(f"Unknown rule keys: {sorted(unknown)}")
+
+            # Unknown type names are a warning, not a failure
+            if "type" in rules and str(rules["type"]).lower() not in self.KNOWN_TYPES:
+                warnings.append(f"Unknown type '{rules['type']}' (treated as ok)")
+
             # Base severity for non-required failures
-            severity = Severity.from_name(rules.get("severity")) if isinstance(rules, dict) else DEFAULT_SEVERITY
+            severity = Severity.from_name(rules.get("severity"))
 
             # check presence
             val = self.env.get(var)
@@ -111,12 +132,16 @@ class ValidatorEngine:
                 if key in rules:
                     ok, msg = validator.validate(val, rules.get(key))
                     if not ok:
+                        # A range failure on a non-numeric value is really a
+                        # type failure when a type rule is present
+                        if key == "range" and msg == "value is not numeric" and "type" in rules:
+                            msg = f"not a valid {str(rules['type']).lower()}"
                         invalid_reasons.append(f"{key}: {msg}")
 
             detail = "; ".join(invalid_reasons + warnings) if invalid_reasons else (
                 "; ".join(warnings) if warnings else f"Value: {val}"
             )
-            
+
             final_severity = severity
             final_ok = True
 
@@ -124,7 +149,7 @@ class ValidatorEngine:
                 final_ok = False
             elif warnings:
                 final_ok = False
-                final_severity = Severity.WARN # Demote to WARN if only unknown keys
+                final_severity = Severity.WARN
             else:
                 final_severity = Severity.INFO
 

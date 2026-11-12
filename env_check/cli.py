@@ -1,13 +1,42 @@
 import argparse
-import sys
 import os
+import sys
 import json
-from typing import Dict, Any
+import shutil
+from typing import Dict, Any, List
 
 from env_check.config_loader import load_config
 from env_check.validator import ValidatorEngine
 from env_check.output.table import print_table
 from env_check import __version__
+
+# Values that look like placeholders rather than real secrets. Flagged
+# secrets with these values fail the run (exit code 3); others are reported
+# but do not fail the run.
+WEAK_SECRET_VALUES = {
+    "", "changeme", "change_me", "changeme123", "change-me",
+    "placeholder", "xxx", "xxxx", "xxxxxx",
+    "todo", "fixme", "none", "null", "nil",
+    "undefined", "notset", "not-set", "missing", "redacted",
+    "sk_test_", "yourkeyhere", "your-key-here", "your-api-key",
+    "dummy", "test", "fake", "secret",
+}
+
+WEAK_SECRET_PREFIXES = ("pk_test_", "ghp_", "gho_", "ghs_")
+
+
+def is_weak_secret(value: str) -> bool:
+    """True if a secret value looks like a placeholder rather than a real secret."""
+    v = value.strip().strip("'\"")
+    low = v.lower()
+    if not low or low in WEAK_SECRET_VALUES:
+        return True
+    if low.startswith(WEAK_SECRET_PREFIXES):
+        return True
+    # All one repeated character, e.g. "aaaaaaaaaa"
+    if len(v) >= 4 and len(set(v)) == 1:
+        return True
+    return False
 
 
 def load_env_file(path: str) -> Dict[str, str]:
@@ -35,17 +64,90 @@ def load_env_file(path: str) -> Dict[str, str]:
 
 
 def detect_secrets(schema: Dict[str, Any], env: Dict[str, str]) -> list:
-    """Detect potential secrets in environment variables based on schema 'secret: true' flags."""
+    """Detect potential secrets in environment variables based on schema 'secret: true' flags.
+
+    A flagged variable is reported when it has a value, or when it is required
+    and missing. Each finding carries a 'weak' flag: True when the value looks
+    like a placeholder (empty, 'changeme', test-mode key, ...).
+    """
     findings = []
     for var, rules in schema.items():
-        if isinstance(rules, dict) and rules.get("secret", False):
-            value = env.get(var)
-            if value:
-                findings.append({
-                    "variable": var,
-                    "reason": "Flagged as secret in schema"
-                })
+        if not (isinstance(rules, dict) and rules.get("secret", False)):
+            continue
+        value = env.get(var, "")
+        if not value and not rules.get("required", False):
+            continue
+        findings.append({
+            "variable": var,
+            "reason": "Flagged as secret in schema",
+            "weak": is_weak_secret(value),
+        })
     return findings
+
+
+def handle_drift_command(args) -> int:
+    """Handle the 'drift' subcommand."""
+    from env_check.drift import DriftDetector, print_drift_table
+    # Flatten compare file arguments
+    compare_files: List[str] = []
+    for item in args.compare:
+        if isinstance(item, list):
+            compare_files.extend(item)
+        else:
+            compare_files.append(item)
+
+    # Validate base file exists
+    if not os.path.exists(args.base):
+        print(f"Base environment file not found: {args.base}", file=sys.stderr)
+        return 2
+
+    # Validate comparison files exist
+    for cf in compare_files:
+        if not os.path.exists(cf):
+            print(f"Comparison environment file not found: {cf}", file=sys.stderr)
+            return 2
+
+    # Load schema if specified
+    schema = {}
+    if args.schema:
+        if not os.path.exists(args.schema):
+            print(f"Schema file not found: {args.schema}", file=sys.stderr)
+            return 2
+        try:
+            schema = load_config(args.schema)
+        except Exception as e:
+            print(f"Failed to load schema: {e}", file=sys.stderr)
+            return 2
+
+    # Run drift detection
+    try:
+        detector = DriftDetector(
+            schema=schema,
+            schema_path=args.schema,
+            strict=args.strict,
+            fail_on=args.fail_on,
+        )
+        report = detector.compare_files(args.base, compare_files)
+    except FileNotFoundError as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    except Exception as e:
+        print(f"Drift detection error: {e}", file=sys.stderr)
+        return 2
+
+    # Render results
+    mask_names = getattr(args, "mask_names", False)
+    if args.format == "json":
+        data = report.to_dict(mask_names=mask_names)
+        # Update summary exit code according to strict and fail_on options
+        data["summary"]["exit_code"] = report.compute_exit_code(
+            strict=args.strict, fail_on=args.fail_on
+        )
+        print(json.dumps(data, indent=2))
+    else:
+        print_drift_table(report, mask_names=mask_names)
+
+    return report.compute_exit_code(strict=args.strict, fail_on=args.fail_on)
 
 
 def parse_args(argv=None):
@@ -53,6 +155,53 @@ def parse_args(argv=None):
         prog="env-check",
         description="env-check: validate environment variables using schema enforcement, drift detection, and secret scanning."
     )
+    
+    subparsers = parser.add_subparsers(dest="command")
+
+    # Drift subcommand
+    drift_parser = subparsers.add_parser(
+        "drift",
+        help="Compare multiple environment files for configuration drift"
+    )
+    drift_parser.add_argument(
+        "--base", "-b",
+        required=True,
+        help="Path to base .env file (source of truth)"
+    )
+    drift_parser.add_argument(
+        "--compare", "-c",
+        action="append",
+        nargs="+",
+        required=True,
+        help="Path to comparison .env file (can be specified multiple times)"
+    )
+    drift_parser.add_argument(
+        "--schema", "-s",
+        help="Path to schema file (JSON or YAML)"
+    )
+    drift_parser.add_argument(
+        "--format",
+        choices=["json", "table"],
+        default="table",
+        help="Output format (default: table)"
+    )
+    drift_parser.add_argument(
+        "--strict",
+        action="store_true",
+        help="Treat warnings as errors"
+    )
+    drift_parser.add_argument(
+        "--fail-on",
+        choices=["warning", "warn", "error", "critical"],
+        help="Fail on specified severity level"
+    )
+    drift_parser.add_argument(
+        "--mask-names",
+        action="store_true",
+        help="Mask sensitive variable names in output"
+    )
+
+    # Top-level args for validation
     parser.add_argument(
         "--schema", "-s",
         help="Path to schema file (JSON or YAML)"
@@ -65,6 +214,12 @@ def parse_args(argv=None):
         "--strict",
         action="store_true",
         help="Treat warnings as errors"
+    )
+    parser.add_argument(
+        "--fail-on-secrets",
+        action="store_true",
+        help="Fail the run if any secret-flagged variable has a non-empty value "
+             "(default: only fail on empty/placeholder secret values)"
     )
     parser.add_argument(
         "--format",
@@ -88,6 +243,11 @@ def parse_args(argv=None):
 def main(argv=None):
     args = parse_args(argv)
     
+    # Check if drift subcommand was called
+    if getattr(args, "command", None) == "drift":
+        return handle_drift_command(args)
+
+    # Standard validation workflow
     # Determine schema file path
     schema_path = args.schema or "envcheck.yml"
     if not os.path.exists(schema_path):
@@ -135,20 +295,24 @@ def main(argv=None):
                     missing.append(var)
         
         if missing:
-            # Create backup
+            # Create backup (never overwrite an existing one)
             backup_path = args.env + ".backup"
             try:
-                with open(args.env, "r", encoding="utf-8") as f:
-                    backup_content = f.read()
-                with open(backup_path, "w", encoding="utf-8") as f:
-                    f.write(backup_content)
+                counter = 1
+                while os.path.exists(backup_path):
+                    backup_path = f"{args.env}.backup.{counter}"
+                    counter += 1
+                shutil.copyfile(args.env, backup_path)
                 
-                # Append missing keys
+                # Append missing keys with their default value, or a TODO marker
                 with open(args.env, "a", encoding="utf-8") as f:
                     f.write("\n# Added by env-check --fix\n")
                     for var in missing:
                         default = schema[var].get("default", "") if isinstance(schema[var], dict) else ""
-                        f.write(f"{var}={default}\n")
+                        if default:
+                            f.write(f"{var}={default}\n")
+                        else:
+                            f.write(f"# TODO {var}=<value>  # required by schema, set a real value\n")
                 
                 print(f"Added {len(missing)} missing required keys to {args.env} (backup: {backup_path})", file=sys.stderr)
             except Exception as e:
@@ -179,25 +343,23 @@ def main(argv=None):
     else:
         print_table(results)
         if secret_findings:
-            print("\n⚠️  Secret risk detected:", file=sys.stderr)
+            weak = [f for f in secret_findings if f["weak"]]
+            label = "⚠️  Secret risk detected:" if weak else "ℹ️  Secret-flagged variables:"
+            print(label, file=sys.stderr)
             for finding in secret_findings:
-                print(f"  {finding['variable']}: {finding['reason']}", file=sys.stderr)
+                if finding["weak"]:
+                    print(f"  {finding['variable']}: weak/placeholder value ({finding['reason']})", file=sys.stderr)
+                else:
+                    print(f"  {finding['variable']}: {finding['reason']} (value present, not shown)", file=sys.stderr)
     
-    # Compute exit code according to spec:
+    # Compute exit code:
     # 0 = success
-    # 1 = validation errors
+    # 1 = validation errors (or warnings with --strict)
     # 2 = schema errors (already handled above)
-    # 3 = secret risk detected
+    # 3 = weak/placeholder secret value (or any secret with --fail-on-secrets)
     exit_code = 0
     
-    # Check for secrets (exit code 3 takes precedence)
-    if secret_findings:
-        exit_code = 3
-        return exit_code
-    
-    # Check validation results
-    # validator returns: 0=OK, 1=ERROR, 2=CRITICAL
-    # We map both ERROR and CRITICAL to validation error (1)
+    # Check validation results: engine maps ERROR/CRITICAL to 1/2 -> both become 1
     validation_exit_code = engine.summarize_exit_code(results)
     if validation_exit_code > 0:
         exit_code = 1
@@ -207,6 +369,11 @@ def main(argv=None):
         has_warnings = any(not r.ok and r.severity.name in ("WARN", "WARNING") for r in results)
         if has_warnings:
             exit_code = 1
+    
+    # Check secrets: weak values always fail; healthy secrets only with --fail-on-secrets
+    weak_findings = [f for f in secret_findings if f["weak"]]
+    if weak_findings or (args.fail_on_secrets and secret_findings):
+        exit_code = 3
     
     return exit_code
 

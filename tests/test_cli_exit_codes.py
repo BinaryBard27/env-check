@@ -75,13 +75,13 @@ def test_exit_code_2_schema_not_found():
 
 
 def test_exit_code_3_secret_detected():
-    """Secret detected → exit code 3"""
+    """Weak/placeholder secret value → exit code 3"""
     schema = get_fixture_path("schema_with_secret.json")
     
-    # Create a temporary .env file with a secret
+    # Create a temporary .env file with a weak (placeholder) secret
     with tempfile.NamedTemporaryFile(mode='w', suffix='.env', delete=False) as f:
         f.write("DATABASE_URL=postgresql://localhost:5432/mydb\n")
-        f.write("API_KEY=sk_test_123456789012345678901234567890\n")
+        f.write("API_KEY=changeme\n")
         env_file = f.name
     
     try:

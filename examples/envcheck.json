@@ -1,0 +1,15 @@
+{
+  "FOO": {
+    "required": true,
+    "type": "str",
+    "non_empty": true
+  },
+  "BAZ": {
+    "required": true,
+    "type": "str",
+    "enum": ["qux", "changed"]
+  },
+  "NEW": {
+    "type": "str"
+  }
+}

@@ -10,10 +10,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: "3.12"
       - name: Install
         run: pip install -e .
       - name: Run env-check
-        run: python -m env_check --no-cache --strict
+        run: python -m env_check --schema examples/envcheck.json --env examples/.env.example --format json
